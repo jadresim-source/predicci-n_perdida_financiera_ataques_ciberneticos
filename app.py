@@ -390,6 +390,36 @@ with sidebar:
     st.markdown("")
     predecir_btn = st.button("🔍 Estimar pérdida financiera", use_container_width=True)
 
+# ── Inicializar session_state ─────────────────────────────────────────────────
+if "resultado" not in st.session_state:
+    st.session_state.resultado = None
+
+# ── Ejecutar predicción al presionar el botón ─────────────────────────────────
+if predecir_btn:
+    datos_entrada = {
+        "año":                     ano,
+        "trimestre":               trimestre,
+        "mes":                     mes,
+        "pais":                    pais,
+        "sector":                  sector,
+        "tipo_ataque":             tipo_ataque,
+        "vector_ataque":           vector_ataque,
+        "severidad":               severidad,
+        "actor_amenaza":           actor_amenaza,
+        "tipo_impacto":            tipo_impacto,
+        "registros_comprometidos": registros,
+        "tiempo_resolucion_horas": tiempo_res,
+        "tamaño_organizacion":     tamaño,
+        "reportado_autoridades":   reportado,
+    }
+    pred, lo_pred, hi_pred = predecir(datos_entrada)
+    st.session_state.resultado = {
+        "datos":    datos_entrada,
+        "pred":     pred,
+        "lo_pred":  lo_pred,
+        "hi_pred":  hi_pred,
+    }
+
 # ══════════════════════════════════════════════════════
 # PANEL PRINCIPAL — Resultados
 # ══════════════════════════════════════════════════════
@@ -435,25 +465,14 @@ with col_main:
     st.markdown("")
 
     # ── Resultado de predicción ───────────────────────────────────────────
-    if predecir_btn or True:  # Mostrar resultado siempre para mejor UX
-        datos_entrada = {
-            "año":                    ano,
-            "trimestre":              trimestre,
-            "mes":                    mes,
-            "pais":                   pais,
-            "sector":                 sector,
-            "tipo_ataque":            tipo_ataque,
-            "vector_ataque":          vector_ataque,
-            "severidad":              severidad,
-            "actor_amenaza":          actor_amenaza,
-            "tipo_impacto":           tipo_impacto,
-            "registros_comprometidos": registros,
-            "tiempo_resolucion_horas": tiempo_res,
-            "tamaño_organizacion":    tamaño,
-            "reportado_autoridades":  reportado,
-        }
-
-        pred, lo_pred, hi_pred = predecir(datos_entrada)
+    if st.session_state.resultado is None:
+        st.info("👈 Configura el incidente en el panel izquierdo y presiona **Estimar pérdida financiera**.", icon="🛡️")
+    else:
+        res       = st.session_state.resultado
+        pred      = res["pred"]
+        lo_pred   = res["lo_pred"]
+        hi_pred   = res["hi_pred"]
+        datos_entrada = res["datos"]
 
         st.markdown('<p class="section-title">💰 Estimación de pérdida financiera</p>', unsafe_allow_html=True)
 
@@ -473,7 +492,6 @@ with col_main:
         # ── Factores de influencia ────────────────────────────────────────
         st.markdown('<p class="section-title">🔬 Importancia de variables en el modelo</p>', unsafe_allow_html=True)
 
-        # Si el modelo tiene feature_importances_, úsalas; si no, usa las predefinidas
         importancias_vis = IMPORTANCIAS
         if modelo is not None and hasattr(modelo, "feature_importances_"):
             try:
@@ -488,7 +506,7 @@ with col_main:
 
         html_bars = ""
         for nombre, imp in items_ordenados:
-            pct  = imp / total
+            pct   = imp / total
             ancho = int(pct * 100)
             html_bars += f"""
             <div class="factor-row">
@@ -505,71 +523,72 @@ with col_main:
         st.markdown("")
         st.markdown('<p class="section-title">⚠️ Contexto de riesgo</p>', unsafe_allow_html=True)
 
-        color_sev = color_severidad(severidad)
         umbral_critico = pred > 500_000
-
         c_ctx1, c_ctx2 = st.columns(2)
         with c_ctx1:
             nivel_riesgo = "🔴 Muy alto" if umbral_critico else ("🟠 Alto" if pred > 50_000 else "🟡 Moderado")
             st.metric("Nivel de riesgo financiero", nivel_riesgo)
-            st.metric("Registros en riesgo", f"{registros:,}")
+            st.metric("Registros en riesgo", f"{datos_entrada['registros_comprometidos']:,}")
         with c_ctx2:
-            costo_por_registro = pred / registros if registros > 0 else 0
+            reg = datos_entrada["registros_comprometidos"]
+            costo_por_registro = pred / reg if reg > 0 else 0
             st.metric("Costo estimado por registro", f"$ {costo_por_registro:.2f}")
-            st.metric("Tiempo de resolución", f"{tiempo_res:.0f} h")
+            st.metric("Tiempo de resolución", f"{datos_entrada['tiempo_resolucion_horas']:.0f} h")
 
         # ── Recomendaciones automáticas ───────────────────────────────────
         st.markdown("")
         st.markdown('<p class="section-title">💡 Acciones recomendadas</p>', unsafe_allow_html=True)
 
+        sev_entrada = datos_entrada["severidad"]
+        atq_entrada = datos_entrada["tipo_ataque"]
         recomendaciones = []
-        if severidad in ("Crítica", "Alta"):
+        if sev_entrada in ("Crítica", "Alta"):
             recomendaciones.append("🚨 **Activar plan de respuesta a incidentes** de forma inmediata.")
-        if tipo_ataque == "Ransomware":
+        if atq_entrada == "Ransomware":
             recomendaciones.append("💾 **Aislar sistemas afectados** y verificar integridad de backups offline.")
-        if registros > 10_000:
+        if datos_entrada["registros_comprometidos"] > 10_000:
             recomendaciones.append("📣 **Notificar a usuarios afectados** según regulaciones de protección de datos.")
-        if reportado == "No" and severidad in ("Crítica", "Alta"):
+        if datos_entrada["reportado_autoridades"] == "No" and sev_entrada in ("Crítica", "Alta"):
             recomendaciones.append("🏛️ **Reportar a autoridades competentes** (CSIRT nacional).")
-        if tiempo_res > 168:
-            recomendaciones.append("⏱️ **Revisar el proceso de respuesta** — tiempos de resolución mayores a 7 días incrementan el daño.")
+        if datos_entrada["tiempo_resolucion_horas"] > 168:
+            recomendaciones.append("⏱️ **Revisar el proceso de respuesta** — tiempos mayores a 7 días incrementan el daño.")
         if not recomendaciones:
             recomendaciones.append("✅ Mantener monitoreo continuo y documentar el incidente para análisis posterior.")
 
         for rec in recomendaciones:
             st.markdown(f"- {rec}")
 
-    # ── Exportar datos del incidente ──────────────────────────────────────
-    st.markdown("")
-    st.markdown('<p class="section-title">📤 Exportar</p>', unsafe_allow_html=True)
+        # ── Exportar datos del incidente ──────────────────────────────────
+        st.markdown("")
+        st.markdown('<p class="section-title">📤 Exportar</p>', unsafe_allow_html=True)
 
-    datos_export = {
-        **datos_entrada,
-        "prediccion_usd": round(pred, 2),
-        "limite_inferior_usd": round(lo_pred, 2),
-        "limite_superior_usd": round(hi_pred, 2),
-    }
-    df_export = pd.DataFrame([datos_export])
+        datos_export = {
+            **datos_entrada,
+            "prediccion_usd":       round(pred, 2),
+            "limite_inferior_usd":  round(lo_pred, 2),
+            "limite_superior_usd":  round(hi_pred, 2),
+        }
+        df_export = pd.DataFrame([datos_export])
 
-    col_exp1, col_exp2 = st.columns(2)
-    with col_exp1:
-        csv_bytes = df_export.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            label="⬇️ Descargar como CSV",
-            data=csv_bytes,
-            file_name="prediccion_incidente.csv",
-            mime="text/csv",
-            use_container_width=True,
-        )
-    with col_exp2:
-        json_str = df_export.to_json(orient="records", force_ascii=False, indent=2)
-        st.download_button(
-            label="⬇️ Descargar como JSON",
-            data=json_str.encode("utf-8"),
-            file_name="prediccion_incidente.json",
-            mime="application/json",
-            use_container_width=True,
-        )
+        col_exp1, col_exp2 = st.columns(2)
+        with col_exp1:
+            csv_bytes = df_export.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                label="⬇️ Descargar como CSV",
+                data=csv_bytes,
+                file_name="prediccion_incidente.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
+        with col_exp2:
+            json_str = df_export.to_json(orient="records", force_ascii=False, indent=2)
+            st.download_button(
+                label="⬇️ Descargar como JSON",
+                data=json_str.encode("utf-8"),
+                file_name="prediccion_incidente.json",
+                mime="application/json",
+                use_container_width=True,
+            )
 
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.divider()
